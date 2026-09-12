@@ -16,7 +16,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
@@ -33,16 +35,21 @@ public class MainActivity extends Activity {
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final int REQUEST_BLE = 42;
     private static final double CAPACITY_KG = 15000.0;
+    private static final int CALIBRATION_VERSION = 2;
+    private static final String TAG = "FNC_SCALE";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayDeque<Double> recentKg = new ArrayDeque<>();
+    private final WeightFilter rawFilter = new WeightFilter();
     private SharedPreferences prefs;
     private BluetoothLeScanner scanner;
     private BluetoothGatt gatt;
     private boolean scanning;
     private long lastPacketMs;
     private long raw;
-    private long zeroRaw;
+    private double zeroRaw;
+    private double zeroSpread;
+    private boolean hasZero;
     private double countsPerKg;
     private double tareKg;
     private boolean showNet = true;
@@ -59,8 +66,16 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("scale", MODE_PRIVATE);
-        zeroRaw = prefs.getLong("zeroRaw", 0);
-        countsPerKg = Double.longBitsToDouble(prefs.getLong("countsPerKg", 0));
+        if (prefs.getInt("calibrationVersion", 0) == CALIBRATION_VERSION) {
+            zeroRaw = Double.longBitsToDouble(prefs.getLong("zeroRawV2", 0));
+            zeroSpread = Double.longBitsToDouble(prefs.getLong("zeroSpread", 0));
+            hasZero = prefs.getBoolean("hasZero", false);
+            countsPerKg = Double.longBitsToDouble(prefs.getLong("countsPerKg", 0));
+            if (!Double.isFinite(zeroRaw) || !Double.isFinite(zeroSpread) ||
+                    !Double.isFinite(countsPerKg)) {
+                zeroRaw = zeroSpread = countsPerKg = 0; hasZero = false;
+            }
+        }
         tonnes = prefs.getBoolean("tonnes", false);
         buildUi();
         requestPermissionsAndScan();
@@ -201,6 +216,7 @@ public class MainActivity extends Activity {
         BluetoothAdapter adapter=manager.getAdapter();
         if(adapter==null || !adapter.isEnabled()){ status.setText("Turn Bluetooth on"); return; }
         if(gatt!=null){ gatt.close(); gatt=null; }
+        clearLiveReading();
         scanner=adapter.getBluetoothLeScanner(); scanning=true; status.setText("Searching for " + DEVICE_NAME + "…"); scanner.startScan(scanCallback);
         handler.postDelayed(() -> { if(scanning){ stopScan(); status.setText("Scale not found — tap Connect"); } }, 15000);
     }
@@ -218,7 +234,7 @@ public class MainActivity extends Activity {
     private final BluetoothGattCallback gattCallback=new BluetoothGattCallback(){
         @Override public void onConnectionStateChange(BluetoothGatt g,int statusCode,int newState){ runOnUiThread(() -> {
             if(newState==BluetoothProfile.STATE_CONNECTED){ status.setText("Connected — waiting for scale"); try{g.discoverServices();}catch(SecurityException ignored){} }
-            else { status.setText("Disconnected — tap Connect"); value.setValue("----"); }
+            else { status.setText("Disconnected — tap Connect"); clearLiveReading(); }
         }); }
         @Override public void onServicesDiscovered(BluetoothGatt g,int statusCode){
             BluetoothGattService s=g.getService(SERVICE_UUID); BluetoothGattCharacteristic c=s==null?null:s.getCharacteristic(TX_UUID);
@@ -234,32 +250,51 @@ public class MainActivity extends Activity {
     private void handleBytes(byte[] bytes){
         if(bytes==null)return; String line=new String(bytes,StandardCharsets.UTF_8).trim(); int at=line.indexOf("RAW="); if(at<0)return;
         int end=line.indexOf(',',at); String number=end<0?line.substring(at+4):line.substring(at+4,end);
-        try { long next=Long.parseLong(number.trim()); runOnUiThread(() -> { raw=next; lastPacketMs=System.currentTimeMillis(); status.setText("Connected"); updateDisplay(); }); } catch(NumberFormatException ignored){}
+        try { long next=Long.parseLong(number.trim()); runOnUiThread(() -> {
+            long now=SystemClock.elapsedRealtime(); if(lastPacketMs==0||now-lastPacketMs>1500)rawFilter.clear();
+            raw=next; rawFilter.add(next);
+            lastPacketMs=now; status.setText("Connected"); updateDisplay();
+            Log.d(TAG,String.format(Locale.US,"sample=%d filtered=%.2f spread=%.2f n=%d stable=%s",next,rawFilter.value(),rawFilter.centralSpread(),rawFilter.size(),rawIsStable()));
+        }); } catch(NumberFormatException ignored){}
     }
 
-    private double grossKg(){ return countsPerKg==0 ? 0 : (raw-zeroRaw)/countsPerKg; }
+    private boolean rawIsStable(){ return rawFilter.isStable(countsPerKg); }
+    private double grossKg(){ return countsPerKg==0 ? 0 : (rawFilter.value()-zeroRaw)/countsPerKg; }
     private void updateDisplay(){
         if(raw==0){ value.setValue("----"); unitLabel.setText(countsPerKg==0?"SETUP NEEDED":(tonnes?"TONNES":"KILOGRAMS")); stability.setText("WAITING"); updateButtons(); return; }
         if(countsPerKg==0){ value.setValue("----"); unitLabel.setText("SETUP NEEDED"); mode.setText("WEIGHT"); stability.setText("OPEN CALIBRATE"); updateButtons(); return; }
         double gross=grossKg(), shown=showNet?gross-tareKg:gross;
         recentKg.addLast(shown); while(recentKg.size()>10)recentKg.removeFirst(); double min=Double.MAX_VALUE,max=-Double.MAX_VALUE; for(double x:recentKg){min=Math.min(min,x);max=Math.max(max,x);}
-        boolean stable=recentKg.size()>=6 && max-min<=3.0; boolean overload=Math.abs(gross)>CAPACITY_KG;
+        boolean stable=rawIsStable()&&recentKg.size()>=6&&max-min<=5.0; boolean overload=Math.abs(gross)>CAPACITY_KG;
         double display=tonnes?shown/1000.0:shown; String unit=tonnes?"TONNES":"KILOGRAMS"; value.setValue(String.format(Locale.US,tonnes?"%.3f":"%.1f",display)); unitLabel.setText(unit);
         mode.setText(showNet?String.format(Locale.US,"NET   •   TARE %.1f kg",tareKg):"GROSS");
         stability.setText(overload?"OVERLOAD — ABOVE 15,000 kg":(stable?"● STABLE":"○ MOVING")); stability.setTextColor(overload?Color.RED:(stable?Color.rgb(76,217,100):Color.rgb(255,183,77)));
         updateButtons();
     }
     private void updateButtons(){ boolean data=raw!=0, ready=data&&countsPerKg!=0; tareButton.setEnabled(ready); displayZeroButton.setEnabled(ready); zeroButton.setEnabled(data); grossNetButton.setEnabled(ready); grossNetButton.setText(showNet?"GROSS":"NET"); unitButton.setText(tonnes?"KG":"TONNES"); }
-    private void setZero(){ if(raw==0)return; zeroRaw=raw; tareKg=0; countsPerKg=0; recentKg.clear(); saveCalibration(); Toast.makeText(this,"Empty zero captured. Now capture a known load.",Toast.LENGTH_LONG).show(); updateDisplay(); updateCalibrationText(); }
-    private void setTare(){ if(countsPerKg==0)return; tareKg=grossKg(); recentKg.clear(); showNet=true; Toast.makeText(this,"Tare set",Toast.LENGTH_SHORT).show(); updateDisplay(); }
+    private void setZero(){
+        if(raw==0)return;
+        if(!rawFilter.isReady()){Toast.makeText(this,"Keep the empty hook still — collecting " + rawFilter.size() + "/" + WeightFilter.WINDOW_SIZE,Toast.LENGTH_LONG).show();return;}
+        if(!rawIsStable()){Toast.makeText(this,"The hook is still moving. Wait until the reading settles.",Toast.LENGTH_LONG).show();return;}
+        zeroRaw=rawFilter.value(); zeroSpread=rawFilter.centralSpread(); hasZero=true;
+        Log.i(TAG,String.format(Locale.US,"zero saved value=%.2f spread=%.2f",zeroRaw,zeroSpread));
+        tareKg=0; countsPerKg=0; recentKg.clear(); saveCalibration();
+        Toast.makeText(this,"Empty reading saved. Apply the known load and wait five seconds.",Toast.LENGTH_LONG).show(); updateDisplay(); updateCalibrationText();
+    }
+    private void setTare(){ if(countsPerKg==0)return; if(!rawIsStable()){Toast.makeText(this,"Wait for a stable reading",Toast.LENGTH_SHORT).show();return;} tareKg=grossKg(); recentKg.clear(); showNet=true; Toast.makeText(this,"Tare set",Toast.LENGTH_SHORT).show(); updateDisplay(); }
     private void calibrateKnownLoad(){
-        if(raw==0 || zeroRaw==0){ Toast.makeText(this,"Capture empty zero first",Toast.LENGTH_SHORT).show(); return; }
+        if(raw==0 || !hasZero){ Toast.makeText(this,"Capture empty zero first",Toast.LENGTH_SHORT).show(); return; }
+        if(!rawFilter.isReady()){Toast.makeText(this,"Keep the load still — collecting " + rawFilter.size() + "/" + WeightFilter.WINDOW_SIZE,Toast.LENGTH_LONG).show();return;}
+        if(!rawIsStable()){Toast.makeText(this,"The load is still moving. Wait until the reading settles.",Toast.LENGTH_LONG).show();return;}
         final double kg;
         try { kg=parseKnownKg(knownWeight.getText().toString()); }
         catch(NumberFormatException e){ Toast.makeText(this,"Enter the load in kg, for example 500 or 1.5 t",Toast.LENGTH_LONG).show(); return; }
         if(kg<=0||kg>CAPACITY_KG){ Toast.makeText(this,"Weight must be between 0 and 15,000 kg",Toast.LENGTH_LONG).show(); return; }
-        double factor=(raw-zeroRaw)/kg;
-        if(Math.abs(factor)<0.000001){ Toast.makeText(this,"No weight change detected. Keep the load applied and wait for a live reading.",Toast.LENGTH_LONG).show(); return; }
+        double loadedRaw=rawFilter.value(); double span=loadedRaw-zeroRaw;
+        double minimumSpan=Math.max(100.0,5.0*(zeroSpread+rawFilter.centralSpread()));
+        if(Math.abs(span)<minimumSpan){ Toast.makeText(this,"The measured change is too small compared with scale movement. Use a heavier known load.",Toast.LENGTH_LONG).show(); return; }
+        double factor=span/kg;
+        Log.i(TAG,String.format(Locale.US,"calibration loaded=%.2f zero=%.2f kg=%.2f factor=%.8f loadedSpread=%.2f",loadedRaw,zeroRaw,kg,factor,rawFilter.centralSpread()));
         countsPerKg=factor; tareKg=0; recentKg.clear(); saveCalibration(); updateCalibrationText(); updateDisplay(); Toast.makeText(this,"Calibration saved",Toast.LENGTH_SHORT).show();
     }
     private double parseKnownKg(String entered){
@@ -279,8 +314,9 @@ public class MainActivity extends Activity {
         if(n.isEmpty())throw new NumberFormatException();
         double value=Double.parseDouble(n); return tonnes?value*1000.0:value;
     }
-    private void saveCalibration(){ prefs.edit().putLong("zeroRaw",zeroRaw).putLong("countsPerKg",Double.doubleToRawLongBits(countsPerKg)).apply(); }
-    private void updateCalibrationText(){ calibration.setText(countsPerKg==0?"Not calibrated":String.format(Locale.US,"Zero raw: %d   Counts/kg: %.6f",zeroRaw,countsPerKg)); }
-    private final Runnable connectionWatchdog=new Runnable(){ public void run(){ if(lastPacketMs>0 && System.currentTimeMillis()-lastPacketMs>2500){ status.setText("Connected — no data"); stability.setText("WAITING"); } handler.postDelayed(this,1000); }};
+    private void saveCalibration(){ prefs.edit().putInt("calibrationVersion",CALIBRATION_VERSION).putBoolean("hasZero",hasZero).putLong("zeroRawV2",Double.doubleToRawLongBits(zeroRaw)).putLong("zeroSpread",Double.doubleToRawLongBits(zeroSpread)).putLong("countsPerKg",Double.doubleToRawLongBits(countsPerKg)).apply(); }
+    private void updateCalibrationText(){ calibration.setText(countsPerKg==0?(hasZero?"Empty reading saved — apply a known load":"Not calibrated"):"Calibration saved"); }
+    private void clearLiveReading(){ raw=0; lastPacketMs=0; rawFilter.clear(); recentKg.clear(); value.setValue("----"); stability.setText("WAITING"); updateButtons(); }
+    private final Runnable connectionWatchdog=new Runnable(){ public void run(){ if(lastPacketMs>0 && SystemClock.elapsedRealtime()-lastPacketMs>2500){ status.setText("Connected — no data"); stability.setText("WAITING"); } handler.postDelayed(this,1000); }};
     @Override protected void onDestroy(){ super.onDestroy(); handler.removeCallbacksAndMessages(null); stopScan(); try{if(gatt!=null)gatt.close();}catch(SecurityException ignored){} }
 }

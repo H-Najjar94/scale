@@ -36,3 +36,8 @@ and [`SCALE_RADIO_HANDOFF.md`](./SCALE_RADIO_HANDOFF.md). Android source is in
 3. Enter its weight in kilograms and tap **Calibrate**.
 
 Calibration is stored locally on each Android device.
+
+Version 1.5 collects a stable five-second window for both calibration points.
+Firmware also averages all roughly 50 radio measurements per second before sending
+five BLE updates per second. Recalibrate after installing version 1.5 because older
+calibrations were based on individual samples and are deliberately not reused.

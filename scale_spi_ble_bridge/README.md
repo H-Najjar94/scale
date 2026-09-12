@@ -30,9 +30,8 @@ For an **ESP32-C3**, use this mapping instead:
 
 The C3 build was flashed and its BLE service was connected successfully from the PC
 on 2026-09-07. The final C3 hardware-SPI decoder compensates for the scale's short
-chip-select setup time, accepts the changing status byte, and reports a sequence
-number with every update. The final wireless test received 25 notifications in five
-seconds, including `RAW=2952,SEQ=...`.
+chip-select setup time and accepts the changing status byte. The final wireless test
+received 25 notifications in five seconds, including valid readings around `2952`.
 
 Only these four wires are required. `SDO`, `NIRQ`, `VDD`, and `SDN` are not needed.
 
@@ -50,7 +49,9 @@ The four-wire connection was tested successfully on 2026-09-07. The ESP32 decode
 valid packets and reported stable raw readings around `3129` to `3131`.
 
 BLE and SPI decoding were then tested together successfully at a 160 MHz CPU clock.
-The flashed ESP32 sends the latest raw reading five times per second. The test board
+The ESP32 averages every valid radio packet in each 200 ms interval and sends that
+result five times per second. This prevents aliasing of the scale's cyclic raw signal.
+The test board
 showed one or more brownout resets while BLE started on the existing USB connection,
 then ran normally. If this repeats, use a short good-quality USB cable and a supply
 rated for at least 500 mA. A 470 uF electrolytic capacitor across the ESP32 board's
@@ -65,19 +66,14 @@ rated for at least 500 mA. A 470 uF electrolytic capacitor across the ESP32 boar
 5. Open notifications on Nordic UART TX characteristic
    `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`.
 
-The phone initially receives lines such as:
+The phone receives short lines such as:
 
 ```text
-RAW=3153
+RAW=3153,N=10
 ```
 
-The raw-to-kilogram factor is still unknown. After collecting stable no-load and
-known-load readings at work, set `ZERO_RAW` and `COUNTS_PER_KG` in the sketch. It will
-then send:
-
-```text
-RAW=123456,KG=3000.0
-```
+`N` is the number of radio packets averaged into that Bluetooth update. Calibration
+and conversion to kilograms remain on the Android phone.
 
 ## Confirmed packet recognition
 

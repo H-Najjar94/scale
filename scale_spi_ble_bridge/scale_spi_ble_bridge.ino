@@ -31,11 +31,6 @@ static constexpr uint8_t PIN_NSEL = 27;  // active-low chip select
 static const char *SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 static const char *TX_UUID      = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 
-// Replace these after the workplace known-load test.
-// Until COUNTS_PER_KG is known, BLE reports RAW=<count> rather than a weight.
-static constexpr int32_t ZERO_RAW = 3153;
-static constexpr float COUNTS_PER_KG = 0.0f;
-
 static volatile uint8_t transaction[16];
 static volatile uint8_t transactionLength = 0;
 static volatile uint8_t bitCount = 0;
@@ -313,32 +308,34 @@ void loop() {
   // Discard the optional byte-level diagnostic stream in normal operation.
   byteQueueTail = byteQueueHead;
 
-  static uint32_t latestRaw = 0;
-  static bool haveReading = false;
+  // Average every valid radio packet received during the BLE interval. The scale
+  // transmits about 50.5 packets/s and its raw value has a slow cyclic ripple.
+  // Sending only the latest packet at 5 Hz aliases that ripple and can make the
+  // same physical load appear different after it is lowered and raised again.
+  static uint64_t intervalSum = 0;
+  static uint16_t intervalSamples = 0;
   while (queueTail != queueHead) {
     noInterrupts();
-    latestRaw = rawQueue[queueTail];
+    const uint32_t queuedRaw = rawQueue[queueTail];
     queueTail = (queueTail + 1) % QUEUE_SIZE;
     interrupts();
-    haveReading = true;
+    intervalSum += queuedRaw;
+    intervalSamples++;
   }
 
   static uint32_t lastSend = 0;
-  static uint32_t sequence = 0;
-  if (haveReading && millis() - lastSend >= 200) {
+  if (intervalSamples > 0 && millis() - lastSend >= 200) {
     lastSend = millis();
-    sequence++;
-    char message[48];
-    if (COUNTS_PER_KG != 0.0f) {
-      const float kg = (static_cast<int32_t>(latestRaw) - ZERO_RAW) / COUNTS_PER_KG;
-      snprintf(message, sizeof(message), "RAW=%lu,KG=%.1f,SEQ=%lu",
-               static_cast<unsigned long>(latestRaw), kg,
-               static_cast<unsigned long>(sequence));
-    } else {
-      snprintf(message, sizeof(message), "RAW=%lu,SEQ=%lu",
-               static_cast<unsigned long>(latestRaw),
-               static_cast<unsigned long>(sequence));
-    }
+    const uint16_t samplesSent = intervalSamples;
+    const uint32_t averagedRaw = static_cast<uint32_t>(
+        (intervalSum + intervalSamples / 2) / intervalSamples);
+    intervalSum = 0;
+    intervalSamples = 0;
+    // This remains below the default 20-byte BLE payload even at the maximum
+    // 24-bit reading. Android owns calibration and all weight calculations.
+    char message[20];
+    snprintf(message, sizeof(message), "RAW=%lu,N=%u",
+             static_cast<unsigned long>(averagedRaw), samplesSent);
 
     Serial.println(message);
     if (ENABLE_BLE && bleTx != nullptr) {

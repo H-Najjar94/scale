@@ -9,11 +9,14 @@ the 15,000 kg capacity warning are calculated on the phone.
 1. Power the scale and ESP, open the app, grant Nearby Devices permission, and wait
    for `Connected`.
 2. Open the **Calibration** tab. With the unloaded hook stable, tap
-   **Capture empty zero**.
+   **Set Zero**. The app requires five seconds of stable readings.
 3. Apply an independently known load, enter its value in kilograms, and tap
-   **Capture known load**.
+   **Calibrate** after the load has been stable for at least five seconds.
 4. Repeat with a larger certified load if greater accuracy across the full 15-tonne
    range is required. The latest two-point calibration is saved on the phone.
+
+Version 1.5 does not reuse older calibration data because earlier releases captured
+single samples that could land at different points in the scale's measurement cycle.
 
 **Tare** stores the current gross weight as the temporary tare and displays net
 weight. It does not send a command to the scale electronics.
