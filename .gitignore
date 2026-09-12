@@ -1,0 +1,22 @@
+# Android/Gradle generated files
+.gradle/
+**/.gradle/
+**/build/
+local.properties
+
+# IDE and OS files
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Temporary working artifacts
+tmp/
+output/
+android_hook_scale/*.png
+HookScale.apk
+whatsapp-*.txt
+
+# Python cache
+__pycache__/
+*.pyc
