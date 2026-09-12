@@ -314,18 +314,18 @@ void loop() {
   // same physical load appear different after it is lowered and raised again.
   static uint64_t intervalSum = 0;
   static uint16_t intervalSamples = 0;
+  static uint32_t intervalStarted = 0;
   while (queueTail != queueHead) {
     noInterrupts();
     const uint32_t queuedRaw = rawQueue[queueTail];
     queueTail = (queueTail + 1) % QUEUE_SIZE;
     interrupts();
+    if (intervalSamples == 0) intervalStarted = millis();
     intervalSum += queuedRaw;
     intervalSamples++;
   }
 
-  static uint32_t lastSend = 0;
-  if (intervalSamples > 0 && millis() - lastSend >= 200) {
-    lastSend = millis();
+  if (intervalSamples > 0 && millis() - intervalStarted >= 200) {
     const uint16_t samplesSent = intervalSamples;
     const uint32_t averagedRaw = static_cast<uint32_t>(
         (intervalSum + intervalSamples / 2) / intervalSamples);
