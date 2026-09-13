@@ -48,4 +48,11 @@ final class WeightFilter {
         double allowed = Math.max(60.0, Math.abs(countsPerKg) * 3.0);
         return isReady() && centralSpread() <= allowed;
     }
+
+    static double minimumCalibrationSpan(double zeroSpread, double loadedSpread) {
+        // Require a change clearly larger than measured noise. The 20-count floor
+        // still rejects an unchanged hook but permits a stable light home test now
+        // that the ESP averages the radio packets before sending them.
+        return Math.max(20.0, 3.0 * (zeroSpread + loadedSpread));
+    }
 }

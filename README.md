@@ -41,3 +41,7 @@ Version 1.5 collects a stable five-second window for both calibration points.
 Firmware also averages all roughly 50 radio measurements per second before sending
 five BLE updates per second. Recalibrate after installing version 1.5 because older
 calibrations were based on individual samples and are deliberately not reused.
+
+Version 1.6 permits a stable light-load calibration when its measured change is
+clearly above the observed noise. Treat this as a home test and recalibrate with a
+heavier certified load before using the scale near its industrial working range.

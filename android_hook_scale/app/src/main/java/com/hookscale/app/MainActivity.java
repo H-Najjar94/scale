@@ -291,11 +291,12 @@ public class MainActivity extends Activity {
         catch(NumberFormatException e){ Toast.makeText(this,"Enter the load in kg, for example 500 or 1.5 t",Toast.LENGTH_LONG).show(); return; }
         if(kg<=0||kg>CAPACITY_KG){ Toast.makeText(this,"Weight must be between 0 and 15,000 kg",Toast.LENGTH_LONG).show(); return; }
         double loadedRaw=rawFilter.value(); double span=loadedRaw-zeroRaw;
-        double minimumSpan=Math.max(100.0,5.0*(zeroSpread+rawFilter.centralSpread()));
+        double minimumSpan=WeightFilter.minimumCalibrationSpan(zeroSpread,rawFilter.centralSpread());
         if(Math.abs(span)<minimumSpan){ Toast.makeText(this,"The measured change is too small compared with scale movement. Use a heavier known load.",Toast.LENGTH_LONG).show(); return; }
         double factor=span/kg;
         Log.i(TAG,String.format(Locale.US,"calibration loaded=%.2f zero=%.2f kg=%.2f factor=%.8f loadedSpread=%.2f",loadedRaw,zeroRaw,kg,factor,rawFilter.centralSpread()));
         countsPerKg=factor; tareKg=0; recentKg.clear(); saveCalibration(); updateCalibrationText(); updateDisplay(); Toast.makeText(this,"Calibration saved",Toast.LENGTH_SHORT).show();
+        if(kg<CAPACITY_KG*.02) Toast.makeText(this,"Light-load calibration saved. Recalibrate with a heavier certified load before weighing heavy loads.",Toast.LENGTH_LONG).show();
     }
     private double parseKnownKg(String entered){
         String s=entered==null?"":entered.trim().toLowerCase(Locale.ROOT);

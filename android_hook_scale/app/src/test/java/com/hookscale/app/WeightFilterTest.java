@@ -55,4 +55,12 @@ public class WeightFilterTest {
         filter.add(3150);
         assertTrue(filter.isReady());
     }
+
+    @Test public void cleanHomeLoadCanCalibrate() {
+        assertEquals(20.0, WeightFilter.minimumCalibrationSpan(1.0, 1.0), 0.001);
+    }
+
+    @Test public void noisyLoadRequiresLargerChange() {
+        assertEquals(300.0, WeightFilter.minimumCalibrationSpan(50.0, 50.0), 0.001);
+    }
 }
