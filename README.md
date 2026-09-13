@@ -45,3 +45,7 @@ calibrations were based on individual samples and are deliberately not reused.
 Version 1.6 permits a stable light-load calibration when its measured change is
 clearly above the observed noise. Treat this as a home test and recalibrate with a
 heavier certified load before using the scale near its industrial working range.
+
+Version 1.7 verifies repeatability before saving calibration. It captures empty and
+known-load readings twice, rejects excessive zero-return or repeated-load error, and
+averages the two accepted points. Existing calibrations are cleared by this update.

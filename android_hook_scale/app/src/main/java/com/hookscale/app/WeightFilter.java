@@ -55,4 +55,10 @@ final class WeightFilter {
         // that the ESP averages the radio packets before sending them.
         return Math.max(20.0, 3.0 * (zeroSpread + loadedSpread));
     }
+
+    static double repeatabilityToleranceKg(double knownKg) {
+        // One kilogram is practical for a light home check. At larger loads allow
+        // half a percent, capped at one 5 kg industrial-scale division.
+        return Math.max(1.0, Math.min(5.0, knownKg * 0.005));
+    }
 }

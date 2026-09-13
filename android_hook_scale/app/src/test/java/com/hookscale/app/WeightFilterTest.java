@@ -63,4 +63,10 @@ public class WeightFilterTest {
     @Test public void noisyLoadRequiresLargerChange() {
         assertEquals(300.0, WeightFilter.minimumCalibrationSpan(50.0, 50.0), 0.001);
     }
+
+    @Test public void repeatabilityToleranceScalesButIsBounded() {
+        assertEquals(1.0, WeightFilter.repeatabilityToleranceKg(20.0), 0.001);
+        assertEquals(2.5, WeightFilter.repeatabilityToleranceKg(500.0), 0.001);
+        assertEquals(5.0, WeightFilter.repeatabilityToleranceKg(3000.0), 0.001);
+    }
 }

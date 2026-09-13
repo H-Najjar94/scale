@@ -335,3 +335,20 @@ The small difference between the before and after values cannot be interpreted a
 weight difference because the captures were not simultaneous. The useful validation
 is that the new firmware is active, receives the scale continuously, and averages a
 complete radio interval before each Bluetooth notification.
+
+## Android repeatability investigation
+
+Date: 2026-09-13 (Asia/Amman)
+
+After a home calibration, the saved empty point was `3016`, the factor was `9.875`
+counts/kg, and the later unloaded BLE stream was steady at `3032`. The 16-count
+return offset therefore appeared correctly in the app as approximately `1.6 kg`.
+The user also reported a repeated-load discrepancy during an earlier heavy-load test,
+so the small home load alone does not explain the full issue.
+
+The older stationary analyzer capture has a roughly 4.6-second oscillation and a
+52-count range. Version 1.7 therefore no longer accepts a single empty/load pair. It
+requires empty, load, empty-return, and repeated-load captures, checks both errors,
+and only then saves averaged calibration points. The next workplace test should keep
+the diagnostic log and record all four plateaus; a rejection will state whether the
+zero return or the repeated load failed.

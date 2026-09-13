@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final int REQUEST_BLE = 42;
     private static final double CAPACITY_KG = 15000.0;
-    private static final int CALIBRATION_VERSION = 2;
+    private static final int CALIBRATION_VERSION = 3;
     private static final String TAG = "FNC_SCALE";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -52,12 +52,15 @@ public class MainActivity extends Activity {
     private boolean hasZero;
     private double countsPerKg;
     private double tareKg;
+    private int calibrationStage;
+    private double firstZeroRaw, firstZeroSpread, secondZeroRaw, secondZeroSpread;
+    private double firstLoadRaw, firstLoadSpread, calibrationKg;
     private boolean showNet = true;
     private boolean tonnes;
 
-    private TextView status, mode, unitLabel, stability, calibration;
+    private TextView status, mode, unitLabel, stability, calibration, calibrationInstructions;
     private DotMatrixView value;
-    private Button connectButton, tareButton, zeroButton, displayZeroButton, grossNetButton, unitButton;
+    private Button connectButton, tareButton, zeroButton, displayZeroButton, grossNetButton, unitButton, calibrateButton;
     private EditText knownWeight;
     private FrameLayout pages;
     private ScrollView scalePage, calibrationPage;
@@ -134,13 +137,13 @@ public class MainActivity extends Activity {
 
         LinearLayout cal = pageBody(calibrationPage);
         TextView calTitle=text("Calibration",25,Color.WHITE); calTitle.setGravity(Gravity.START); calTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(cal,calTitle);
-        TextView instructions=text("1. Empty the hook and set zero.\n2. Apply a known load and enter its weight.",14,muted); instructions.setGravity(Gravity.START); add(cal,instructions);
+        calibrationInstructions=text("Empty the hook, keep it still for five seconds, then tap SET ZERO. The app checks empty and loaded readings twice.",14,muted); calibrationInstructions.setGravity(Gravity.START); add(cal,calibrationInstructions);
         TextView step1=text("1   EMPTY",13,orange); step1.setGravity(Gravity.START); step1.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(cal,step1);
         zeroButton = button("SET ZERO"); zeroButton.setOnClickListener(v -> setZero()); add(cal,zeroButton);
         TextView step2=text("2   KNOWN LOAD",13,orange); step2.setGravity(Gravity.START); step2.setTypeface(Typeface.DEFAULT,Typeface.BOLD); step2.setPadding(dp(8),dp(14),dp(8),dp(2)); add(cal,step2);
         knownWeight = new EditText(this); knownWeight.setHint("Weight (kg)"); knownWeight.setTextSize(17); knownWeight.setTextColor(Color.WHITE); knownWeight.setHintTextColor(Color.rgb(110,125,141)); knownWeight.setPadding(dp(16),dp(8),dp(16),dp(8)); knownWeight.setBackground(background(card,14));
         knownWeight.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL); LinearLayout.LayoutParams inputLp=new LinearLayout.LayoutParams(-1,dp(52)); inputLp.setMargins(0,dp(4),0,dp(8)); cal.addView(knownWeight,inputLp);
-        Button calibrateButton=button("CALIBRATE"); calibrateButton.setBackground(background(orange,16)); calibrateButton.setOnClickListener(v -> calibrateKnownLoad()); add(cal,calibrateButton);
+        calibrateButton=button("CAPTURE LOAD"); calibrateButton.setBackground(background(orange,16)); calibrateButton.setOnClickListener(v -> calibrateKnownLoad()); calibrateButton.setEnabled(false); add(cal,calibrateButton);
         calibration=text("",13,muted); calibration.setGravity(Gravity.START); calibration.setPadding(dp(8),dp(12),dp(8),dp(8)); add(cal,calibration);
 
         LinearLayout nav=new LinearLayout(this); nav.setOrientation(LinearLayout.HORIZONTAL); nav.setPadding(dp(10),dp(7),dp(10),dp(10)); nav.setBackgroundColor(Color.rgb(15,22,30));
@@ -275,28 +278,57 @@ public class MainActivity extends Activity {
     private void setZero(){
         if(raw==0)return;
         if(!rawFilter.isReady()){Toast.makeText(this,"Keep the empty hook still — collecting " + rawFilter.size() + "/" + WeightFilter.WINDOW_SIZE,Toast.LENGTH_LONG).show();return;}
-        if(!rawIsStable()){Toast.makeText(this,"The hook is still moving. Wait until the reading settles.",Toast.LENGTH_LONG).show();return;}
-        zeroRaw=rawFilter.value(); zeroSpread=rawFilter.centralSpread(); hasZero=true;
-        Log.i(TAG,String.format(Locale.US,"zero saved value=%.2f spread=%.2f",zeroRaw,zeroSpread));
-        tareKg=0; countsPerKg=0; recentKg.clear(); saveCalibration();
-        Toast.makeText(this,"Empty reading saved. Apply the known load and wait five seconds.",Toast.LENGTH_LONG).show(); updateDisplay(); updateCalibrationText();
+        if(!rawFilter.isStable(0)){Toast.makeText(this,"The hook is still moving. Wait until the reading settles.",Toast.LENGTH_LONG).show();return;}
+        firstZeroRaw=rawFilter.value(); firstZeroSpread=rawFilter.centralSpread(); calibrationStage=1;
+        Log.i(TAG,String.format(Locale.US,"calibration zero1=%.2f spread=%.2f",firstZeroRaw,firstZeroSpread));
+        rawFilter.clear(); recentKg.clear(); calibrateButton.setEnabled(true); calibrateButton.setText("CAPTURE LOAD");
+        calibrationInstructions.setText("Apply the known load, enter its weight, keep still for five seconds, then tap CAPTURE LOAD.");
+        Toast.makeText(this,"First empty reading captured. Apply the known load.",Toast.LENGTH_LONG).show();
     }
     private void setTare(){ if(countsPerKg==0)return; if(!rawIsStable()){Toast.makeText(this,"Wait for a stable reading",Toast.LENGTH_SHORT).show();return;} tareKg=grossKg(); recentKg.clear(); showNet=true; Toast.makeText(this,"Tare set",Toast.LENGTH_SHORT).show(); updateDisplay(); }
     private void calibrateKnownLoad(){
-        if(raw==0 || !hasZero){ Toast.makeText(this,"Capture empty zero first",Toast.LENGTH_SHORT).show(); return; }
-        if(!rawFilter.isReady()){Toast.makeText(this,"Keep the load still — collecting " + rawFilter.size() + "/" + WeightFilter.WINDOW_SIZE,Toast.LENGTH_LONG).show();return;}
-        if(!rawIsStable()){Toast.makeText(this,"The load is still moving. Wait until the reading settles.",Toast.LENGTH_LONG).show();return;}
-        final double kg;
-        try { kg=parseKnownKg(knownWeight.getText().toString()); }
-        catch(NumberFormatException e){ Toast.makeText(this,"Enter the load in kg, for example 500 or 1.5 t",Toast.LENGTH_LONG).show(); return; }
-        if(kg<=0||kg>CAPACITY_KG){ Toast.makeText(this,"Weight must be between 0 and 15,000 kg",Toast.LENGTH_LONG).show(); return; }
-        double loadedRaw=rawFilter.value(); double span=loadedRaw-zeroRaw;
-        double minimumSpan=WeightFilter.minimumCalibrationSpan(zeroSpread,rawFilter.centralSpread());
-        if(Math.abs(span)<minimumSpan){ Toast.makeText(this,"The measured change is too small compared with scale movement. Use a heavier known load.",Toast.LENGTH_LONG).show(); return; }
-        double factor=span/kg;
-        Log.i(TAG,String.format(Locale.US,"calibration loaded=%.2f zero=%.2f kg=%.2f factor=%.8f loadedSpread=%.2f",loadedRaw,zeroRaw,kg,factor,rawFilter.centralSpread()));
-        countsPerKg=factor; tareKg=0; recentKg.clear(); saveCalibration(); updateCalibrationText(); updateDisplay(); Toast.makeText(this,"Calibration saved",Toast.LENGTH_SHORT).show();
-        if(kg<CAPACITY_KG*.02) Toast.makeText(this,"Light-load calibration saved. Recalibrate with a heavier certified load before weighing heavy loads.",Toast.LENGTH_LONG).show();
+        if(raw==0 || calibrationStage==0){ Toast.makeText(this,"Capture empty zero first",Toast.LENGTH_SHORT).show(); return; }
+        if(!rawFilter.isReady()){Toast.makeText(this,"Keep still — collecting " + rawFilter.size() + "/" + WeightFilter.WINDOW_SIZE,Toast.LENGTH_LONG).show();return;}
+        if(!rawFilter.isStable(0)){Toast.makeText(this,"The scale is still moving. Wait until it settles.",Toast.LENGTH_LONG).show();return;}
+        double point=rawFilter.value(), spread=rawFilter.centralSpread();
+        if(calibrationStage==1){
+            try { calibrationKg=parseKnownKg(knownWeight.getText().toString()); }
+            catch(NumberFormatException e){ Toast.makeText(this,"Enter the load in kg, for example 500 or 1.5 t",Toast.LENGTH_LONG).show(); return; }
+            if(calibrationKg<=0||calibrationKg>CAPACITY_KG){ Toast.makeText(this,"Weight must be between 0 and 15,000 kg",Toast.LENGTH_LONG).show(); return; }
+            double span=point-firstZeroRaw;
+            if(Math.abs(span)<WeightFilter.minimumCalibrationSpan(firstZeroSpread,spread)){ Toast.makeText(this,"The measured change is too small compared with scale movement. Use a heavier known load.",Toast.LENGTH_LONG).show(); return; }
+            firstLoadRaw=point; firstLoadSpread=spread; calibrationStage=2; rawFilter.clear();
+            Log.i(TAG,String.format(Locale.US,"calibration load1=%.2f kg=%.2f spread=%.2f",firstLoadRaw,calibrationKg,firstLoadSpread));
+            calibrateButton.setText("VERIFY EMPTY"); calibrationInstructions.setText("Remove the load, keep still for five seconds, then tap VERIFY EMPTY.");
+            Toast.makeText(this,"Load captured. Remove it and verify empty return.",Toast.LENGTH_LONG).show(); return;
+        }
+        double preliminaryFactor=(firstLoadRaw-firstZeroRaw)/calibrationKg;
+        double toleranceKg=WeightFilter.repeatabilityToleranceKg(calibrationKg);
+        if(calibrationStage==2){
+            double zeroErrorKg=Math.abs(point-firstZeroRaw)/Math.abs(preliminaryFactor);
+            Log.i(TAG,String.format(Locale.US,"calibration zero2=%.2f errorKg=%.3f spread=%.2f",point,zeroErrorKg,spread));
+            if(zeroErrorKg>toleranceKg){ failCalibration(String.format(Locale.US,"The empty reading did not return: %.1f kg error. Check the hook and repeat calibration.",zeroErrorKg)); return; }
+            secondZeroRaw=point; secondZeroSpread=spread; calibrationStage=3; rawFilter.clear();
+            calibrateButton.setText("VERIFY LOAD"); calibrationInstructions.setText("Apply the same known load again, keep still for five seconds, then tap VERIFY LOAD.");
+            Toast.makeText(this,"Empty return passed. Apply the same load again.",Toast.LENGTH_LONG).show(); return;
+        }
+        double loadErrorKg=Math.abs(point-firstLoadRaw)/Math.abs(preliminaryFactor);
+        Log.i(TAG,String.format(Locale.US,"calibration load2=%.2f errorKg=%.3f spread=%.2f",point,loadErrorKg,spread));
+        if(loadErrorKg>toleranceKg){ failCalibration(String.format(Locale.US,"The repeated load differs by %.1f kg. Check mounting and repeat calibration.",loadErrorKg)); return; }
+        zeroRaw=(firstZeroRaw+secondZeroRaw)/2.0; zeroSpread=Math.max(firstZeroSpread,secondZeroSpread);
+        double loadedRaw=(firstLoadRaw+point)/2.0;
+        countsPerKg=(loadedRaw-zeroRaw)/calibrationKg; hasZero=true; tareKg=0; recentKg.clear(); saveCalibration();
+        calibrationStage=0; calibrateButton.setEnabled(false); calibrateButton.setText("CAPTURE LOAD");
+        calibrationInstructions.setText("Calibration verified. Tap SET ZERO to start a new calibration.");
+        updateCalibrationText(); updateDisplay(); Toast.makeText(this,"Repeatable calibration saved",Toast.LENGTH_LONG).show();
+        if(calibrationKg<CAPACITY_KG*.02) Toast.makeText(this,"Light-load calibration saved. Recalibrate with a heavier certified load before weighing heavy loads.",Toast.LENGTH_LONG).show();
+    }
+
+    private void failCalibration(String message){
+        Log.w(TAG,"calibration rejected: "+message); calibrationStage=0; rawFilter.clear(); recentKg.clear();
+        calibrateButton.setEnabled(false); calibrateButton.setText("CAPTURE LOAD");
+        calibrationInstructions.setText("Calibration rejected. Empty the hook, keep still for five seconds, and tap SET ZERO to restart.");
+        Toast.makeText(this,message,Toast.LENGTH_LONG).show();
     }
     private double parseKnownKg(String entered){
         String s=entered==null?"":entered.trim().toLowerCase(Locale.ROOT);
