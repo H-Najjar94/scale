@@ -352,3 +352,19 @@ requires empty, load, empty-return, and repeated-load captures, checks both erro
 and only then saves averaged calibration points. The next workplace test should keep
 the diagnostic log and record all four plateaus; a rejection will state whether the
 zero return or the repeated load failed.
+
+## Packet encoding review
+
+Date: 2026-09-13 (Asia/Amman)
+
+Alternative interpretations were compared over all 505 stationary packets. The
+little-endian value had a median adjacent step of 1 count, a maximum step of 3, and
+no steps above 1000. The 24-bit big-endian interpretation had a median step of 65536
+and 318 steps above 1000. This strongly supports little-endian byte order.
+
+The normal captures cannot yet distinguish a 16-bit value from a 24-bit value because
+the third measurement byte remained `00`. Nor do they prove signed behavior or the
+meaning of payload byte 4. A prepared firmware update sends `RAW=<value>,S=<hex>` so
+the next unloaded/load/unloaded/load capture retains that byte. This update compiled
+successfully for `esp32:esp32:esp32c3`, but was not flashed because the installed ESP
+was powered from the scale and had no USB connection to the PC.

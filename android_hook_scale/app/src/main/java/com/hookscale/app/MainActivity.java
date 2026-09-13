@@ -257,7 +257,7 @@ public class MainActivity extends Activity {
             long now=SystemClock.elapsedRealtime(); if(lastPacketMs==0||now-lastPacketMs>1500)rawFilter.clear();
             raw=next; rawFilter.add(next);
             lastPacketMs=now; status.setText("Connected"); updateDisplay();
-            Log.d(TAG,String.format(Locale.US,"sample=%d filtered=%.2f spread=%.2f n=%d stable=%s",next,rawFilter.value(),rawFilter.centralSpread(),rawFilter.size(),rawIsStable()));
+            Log.d(TAG,String.format(Locale.US,"bridge=%s sample=%d filtered=%.2f spread=%.2f n=%d stable=%s",line,next,rawFilter.value(),rawFilter.centralSpread(),rawFilter.size(),rawIsStable()));
         }); } catch(NumberFormatException ignored){}
     }
 

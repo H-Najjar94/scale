@@ -69,10 +69,11 @@ rated for at least 500 mA. A 470 uF electrolytic capacitor across the ESP32 boar
 The phone receives short lines such as:
 
 ```text
-RAW=3153,N=10
+RAW=3153,S=80
 ```
 
-`N` is the number of radio packets averaged into that Bluetooth update. Calibration
+`S` preserves payload byte 4 as two hexadecimal digits. Its meaning is still under
+investigation; it may contain scale state, sign, range, or decimal information. Calibration
 and conversion to kilograms remain on the Android phone.
 
 ## Confirmed packet recognition

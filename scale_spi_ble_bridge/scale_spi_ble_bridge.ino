@@ -41,6 +41,7 @@ static volatile uint8_t payloadLength = 0;
 
 static constexpr uint8_t QUEUE_SIZE = 16;
 static volatile uint32_t rawQueue[QUEUE_SIZE];
+static volatile uint8_t statusQueue[QUEUE_SIZE];
 static volatile uint8_t queueHead = 0;
 static volatile uint8_t queueTail = 0;
 static volatile uint32_t droppedPackets = 0;
@@ -72,13 +73,14 @@ static inline bool IRAM_ATTR pinIsHigh(uint8_t pin) {
   return (REG_READ(GPIO_IN_REG) & (1UL << pin)) != 0;
 }
 
-static void IRAM_ATTR queueRaw(uint32_t raw) {
+static void IRAM_ATTR queueRaw(uint32_t raw, uint8_t status) {
   const uint8_t next = (queueHead + 1) % QUEUE_SIZE;
   if (next == queueTail) {
     droppedPackets++;
     return;
   }
   rawQueue[queueHead] = raw;
+  statusQueue[queueHead] = status;
   queueHead = next;
 }
 
@@ -96,7 +98,7 @@ static void IRAM_ATTR acceptFifoByte(uint8_t value) {
     const uint32_t raw = static_cast<uint32_t>(payload[1]) |
                          (static_cast<uint32_t>(payload[2]) << 8) |
                          (static_cast<uint32_t>(payload[3]) << 16);
-    queueRaw(raw);
+    queueRaw(raw, payload[4]);
   }
 }
 
@@ -314,28 +316,32 @@ void loop() {
   // same physical load appear different after it is lowered and raised again.
   static uint64_t intervalSum = 0;
   static uint16_t intervalSamples = 0;
+  static uint8_t intervalStatus = 0;
   static uint32_t intervalStarted = 0;
   while (queueTail != queueHead) {
     noInterrupts();
     const uint32_t queuedRaw = rawQueue[queueTail];
+    const uint8_t queuedStatus = statusQueue[queueTail];
     queueTail = (queueTail + 1) % QUEUE_SIZE;
     interrupts();
     if (intervalSamples == 0) intervalStarted = millis();
     intervalSum += queuedRaw;
+    intervalStatus = queuedStatus;
     intervalSamples++;
   }
 
   if (intervalSamples > 0 && millis() - intervalStarted >= 200) {
-    const uint16_t samplesSent = intervalSamples;
     const uint32_t averagedRaw = static_cast<uint32_t>(
         (intervalSum + intervalSamples / 2) / intervalSamples);
     intervalSum = 0;
     intervalSamples = 0;
-    // This remains below the default 20-byte BLE payload even at the maximum
-    // 24-bit reading. Android owns calibration and all weight calculations.
+    // Preserve byte 4 for protocol investigation. The meaning of this byte is
+    // not proven; it may contain sign, range, decimal, stability, or status bits.
+    // Omitting N keeps the line below the default 20-byte BLE payload even for
+    // the maximum 24-bit reading.
     char message[20];
-    snprintf(message, sizeof(message), "RAW=%lu,N=%u",
-             static_cast<unsigned long>(averagedRaw), samplesSent);
+    snprintf(message, sizeof(message), "RAW=%lu,S=%02X",
+             static_cast<unsigned long>(averagedRaw), intervalStatus);
 
     Serial.println(message);
     if (ENABLE_BLE && bleTx != nullptr) {

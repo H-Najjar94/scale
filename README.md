@@ -49,3 +49,6 @@ heavier certified load before using the scale near its industrial working range.
 Version 1.7 verifies repeatability before saving calibration. It captures empty and
 known-load readings twice, rejects excessive zero-return or repeated-load error, and
 averages the two accepted points. Existing calibrations are cleared by this update.
+
+Version 1.8 adds full bridge-message logging for packet investigation. The prepared
+ESP firmware preserves payload byte 4 as `S=xx` instead of discarding it.
