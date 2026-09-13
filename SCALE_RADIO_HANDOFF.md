@@ -314,3 +314,24 @@ Do not desolder or replace the scale's working radio module. Build the new recei
 Silicon Labs, *Si4430/31/32-B1 ISM Transceiver Data Sheet*, revision 1.2:
 
 https://www.silabs.com/documents/public/data-sheets/Si4430-31-32.pdf
+
+## ESP32-C3 averaging update flashed and verified
+
+Date: 2026-09-13 (Asia/Amman)
+
+The installed ESP32-C3 appeared as `COM19` (`VID 303A`, `PID 1001`) and as BLE
+`HookScale-ESP32`. Before flashing, the old firmware produced individual readings
+using the format `RAW=2970,SEQ=...`; a separate five-second capture returned 25
+readings at `2975`.
+
+Firmware from commit `4c7db01` compiled for `esp32:esp32:esp32c3`, uploaded through
+COM19, and passed flash hash verification. After flashing, BLE returned 23 readings
+in the notification window using the new format `RAW=...,N=...`. The first value
+was `2968`, subsequent values were `2969`, and every result averaged 10 or 11 radio
+packets. This agrees with the previously measured radio rate of about 50.5 packets/s
+and the intended five BLE updates/s.
+
+The small difference between the before and after values cannot be interpreted as a
+weight difference because the captures were not simultaneous. The useful validation
+is that the new firmware is active, receives the scale continuously, and averages a
+complete radio interval before each Bluetooth notification.

@@ -1,0 +1,10 @@
+ESP after-flash BLE capture
+Date: 2026-09-13 Asia/Amman
+Device: HookScale-ESP32
+Address: 0C:4E:A0:4D:24:B6
+RSSI: -44 dBm
+Firmware message format: RAW=<averaged value>,N=<radio samples>
+Notifications: 23 during the five-second notification window
+Raw readings: 2968 once, then 2969
+Radio samples per BLE reading: 10 or 11
+Result: Updated firmware is active and averages the expected approximately 50.5 radio packets/s into five BLE readings/s.

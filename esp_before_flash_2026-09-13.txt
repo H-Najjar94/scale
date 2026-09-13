@@ -1,0 +1,10 @@
+ESP before-flash BLE capture
+Date: 2026-09-13 Asia/Amman
+Device: HookScale-ESP32
+Address: 0C:4E:A0:4D:24:B6
+RSSI: -44 dBm
+Firmware message format: RAW=<value>,SEQ=<sequence>
+Notifications: 25 in 5 seconds
+Raw readings: all 2975
+Sequence range: 471-495
+Result: Existing firmware and scale SPI decoding are active and stable.
